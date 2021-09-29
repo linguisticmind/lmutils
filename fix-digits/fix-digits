@@ -1,0 +1,472 @@
+#!/usr/bin/env bash
+
+# Dev info messages
+
+shopt -s extglob
+
+head_re_default='^' tail_re_default=' - .*$'
+
+function array_width {
+
+  # array_width [--line] --array <array>
+  #
+  # Get length of the longest element in array
+  #
+  # -l, --line   Consider length of the longest line in each array element
+  #              instead of the length of the entire element
+  # -a, --array  Array elements to process
+
+  local line i j lines element longest
+
+  [[ $1 = -l || $1 = --line ]] && line=1 && shift
+  if [[ $1 = -a || $1 = --array ]]; then
+    shift
+  else
+    echo "[$FUNCNAME] Insufficient arguments." >&2
+    return 2
+  fi
+
+  for i in "$@"; do
+    if [[ ! $line ]]; then
+      element="$i"
+    else
+      IFS=$'\n' read -d '' -ra lines <<< "$i"
+      for j in "${lines[@]}"; do
+        [[ ${#j} -gt ${#element} ]] && element="$j"
+      done
+    fi
+    [[ ${#element} -gt $longest ]] && longest="${#element}"
+  done
+  echo $longest
+
+}
+
+function print_help {
+
+  shopt -s checkwinsize; (:)
+
+  local max_width=$COLUMNS \
+        text_left_margin=2 col_spacing=2 text_right_margin=2
+
+  local text_max_width=$((max_width - text_left_margin - text_right_margin))
+
+  function print_blocks {
+
+    local i j width indent formatting blocks
+
+    for (( i=1; i<=$#; i++ )); do
+
+      if [[ ${!i} = -* ]]; then
+
+        [[ ${!i} = -- ]] && j=$((i + 1)) blocks+=("${@:$j}") && break
+
+        if [[ ${!i} =   -[^-]* && \
+              ${!i} =   -*f*   || \
+              ${!i} =~ ^--(fmt|default-formatting) ]]; then
+          unset formatting[${#blocks[@]}]
+          j=$((i + 1)) blocks+=("${!j}") i=$j
+        fi
+
+        if [[ ${!i} =   -[^-]* && \
+              ${!i} =   -*a*   || \
+              ${!i} =~ ^--(fold|alt-formatting) ]]; then
+
+          formatting[${#blocks[@]}]=1
+          j=$((i + 1)) blocks+=("${!j}") i=$j
+
+        fi
+
+        if [[ ${!i} = -[^-]*  && \
+              ${!i} = -*[nF]* || \
+              ${!i} = --no-formatting ]]; then
+
+          formatting[${#blocks[@]}]=2
+          j=$((i + 1)) blocks+=("${!j}") i=$j
+ 
+        fi
+
+        if [[ ${!i} = -[^-]* && \
+              ${!i} = -*w   || ${!i} = --width ]]; then
+          j=$((i + 1)) width="${!j}" i=$j
+        fi
+
+        if [[ ${!i} = -[^-]* && \
+              ${!i} = -*i   || ${!i} = --indent ]]; then
+          j=$((i + 1)) indent="${!j}" i=$j
+        fi
+
+      else
+        blocks+=("${!i}")
+      fi
+
+    done
+
+    [[ ! $width ]] && width="$text_max_width"
+    [[ ! $indent ]] && indent="$text_left_margin"
+
+    for (( i=0; i<${#blocks[@]}; i++ )); do
+      [[ ! ${blocks[$i]} ]] && continue
+      while IFS= read -r line; do
+        printf "%${indent}s%s\n" '' "$line"
+      done < <(if [[ ! ${formatting[$i]} ]]; then
+                 fmt --split-only --width "$width" <<< "${blocks[$i]}"
+               elif [[ ${formatting[$i]} = 1 ]]; then
+                 fold --spaces --width "$width" <<< "${blocks[$i]}"
+               elif [[ ${formatting[$i]} = 2 ]]; then
+                 echo "${blocks[$i]}"
+               fi)
+      printf '\n' # Adds an extra blank line at the bottom of the block
+    done
+
+  }
+
+  function print_opd_block {
+
+    local col1 col1_width col1_line \
+          col2 col2_width col2_line \
+          i 
+
+    col1_width=$(array_width --line --array "${opd_names[@]}" "${opt_names[@]}")
+    col2_width=$((text_max_width - col1_width - col_spacing))
+
+    for (( i=0; i<${#opd_names[@]}; i++ )); do
+
+      while IFS=: read -r col1_line col2_line; do
+        printf "%-$((text_left_margin + col1_width))s%-${col2_width}s\n" \
+          "$col1_line" \
+          "$col2_line"
+      done < <(paste \
+                 --delimiters=: \
+                 \
+                 <(print_blocks \
+                   --width "$col1_width" \
+                   --no-formatting "${opd_names[$i]}") \
+                 \
+                 <(print_blocks \
+                   --width "$col2_width" \
+                   --indent "$col_spacing" \
+                   --alt-formatting "${opd_values[$i]}" \
+                   "${opd_descriptions[$i]}"))
+
+    done
+
+  }
+
+  function print_opt_block {
+
+    local col1 col1_width col1_line \
+          col2 col2_width col2_line \
+          i 
+
+    col1_width=$(array_width --line --array "${opt_names[@]}")
+    col2_width=$((text_max_width - col1_width - col_spacing))
+
+    for (( i=0; i<${#opt_names[@]}; i++ )); do
+
+      while IFS=: read -r col1_line col2_line; do
+        printf "%-$((text_left_margin + col1_width))s%-${col2_width}s\n" \
+          "$col1_line" \
+          "$col2_line"
+      done < <(paste \
+                 --delimiters=: \
+                 \
+                 <(print_blocks \
+                   --width "$col1_width" \
+                   --no-formatting "${opt_names[$i]}") \
+                 \
+                 <(print_blocks \
+                   --width "$col2_width" \
+                   --indent "$col_spacing" \
+                   --alt-formatting "${opt_values[$i]}" \
+                   --alt-formatting "${opt_aliases[$i]}" \
+                   "${opt_descriptions[$i]}"))
+
+    done
+
+  }
+
+  printf '\n' # Adds an extra blank line at the top before printing help text
+
+  print_blocks \
+    "${0##*/} - add leading zeros to numbers in filenames" \
+    "${0##*/} [<options>] <file> ... [<options>]" 
+
+  # Operand info arrays:
+  # 
+  # opd_names
+  # opd_values
+  # opd_descriptions
+
+  opd_names[0]='<file> ...'
+  opd_descriptions[0]="Files to rename. If none given, the script acts on all files in the current working directory (that match the '--head' and '--tail' regexes, see below)."
+
+  # Option info arrays:
+  # 
+  # opt_names
+  # opt_values
+  # opt_aliases
+  # opt_descriptions
+
+  opt_names[0]='--head'
+  opt_values[0]='<regex>'
+  opt_descriptions[0]='Regex for the part preceding digits.'$'\n'
+  opt_descriptions[0]+="Default value: '${head_re_default}'."$'\n'
+  opt_descriptions[0]+='Regex flavor is POSIX Extended Regular Expressions.'
+
+  opt_names[1]='--tail'
+  opt_values[1]='<regex>'
+  opt_descriptions[1]='Regex for the part following digits.'$'\n'
+  opt_descriptions[1]+="Default value: '${tail_re_default}'."$'\n'
+  opt_descriptions[1]+="See '--head' for regex flavor."
+
+  opt_names[2]='-r, --rename'
+  opt_aliases[2]='(--run)'
+  opt_descriptions[2]="Rename files. If unset, the process is simulated. See '-s, --simulate'"
+
+  opt_names[3]='-s, --simulate'
+  opt_aliases[3]=$'(-R, --no-rename,\n -d, --dry-run)'
+  opt_descriptions[3]="Preview new filenames without renaming files. Disables '-r, --rename'. This is the default behavior."
+
+  opt_names[4]='--'
+  opt_descriptions[4]='End of options. All arguments after this option will be treated as operands.'$'\n'
+  opt_descriptions[4]+="Operands are non-option arguments. In ${0##*/} those are the <file> arguments."$'\n'
+  opt_descriptions[4]+='This option allows to start those arguments with a hyphen (-).'
+
+  opt_names[5]='-h, --help'
+  opt_descriptions[5]="Print this help message."
+
+  opt_names[6]='--no-ansi-escape'
+  opt_aliases[6]=$'(--no-ansi,\n --plain-output, --plain)'
+  opt_descriptions[6]="Disable colorization and formatting (ANSI escape sequences) in the output of ${0##*/}."
+
+  opt_names[7]='--ansi-escape'
+  opt_aliases[7]=$'(--ansi,\n --no-plain-output, --no-plain)'
+  opt_descriptions[7]="Keep colorization and formatting (ANSI escape sequences) in the output of ${0##*/}. Disables '--no-ansi-escape'. This is the default behavior."
+
+  opt_names[8]='--message-labels'
+  opt_descriptions[8]="When ${0##*/} prints a message, add a label categorizing it as informational, warning, error etc."
+
+  opt_names[9]='--no-message-labels'
+  opt_descriptions[9]="Don't add labels to messages printed by  ${0##*/}. Disables '--message-labels'. This is the default behavior."
+
+  opt_names[10]='--no-message-sources'
+  opt_descriptions[10]="When printing a message, don't show the name of the script that issued the message."
+
+  opt_names[11]='--message-sources'
+  opt_descriptions[11]="When printing a message, show the name of the script that issued the message. Disables '--no-message-sources'. This is the default behavior."
+
+  opt_names[12]='--rename-in-alphabetical-order'
+  opt_descriptions[12]="Rename files in alphabetical order, i.e. with non-zero prefixed numbers out of order."$'\n\n'
+  opt_descriptions[12]+='(This does not affect the resulting filenames, only the order in which the renaming is happening.)'
+
+  opt_names[13]='--rename-in-natural-order'
+  opt_descriptions[13]="Rename files in natural order, i.e. with numerical order respected."$'\n\n'  
+  opt_descriptions[13]+="Disables '--rename-in-alphabetical-order'. This is the default behavior."$'\n\n'
+  opt_descriptions[13]+='(This does not affect the resulting filenames, only the order in which the renaming is happening.)'
+
+  print_opd_block
+
+  print_blocks \
+    'Options'
+
+  print_opt_block
+
+  print_blocks \
+    'About' \
+    "${0##*/} is part of lmutils - collection of command line tools for language learning and more."$'\n''lmutils are hosted at https://github.com/linguisticmind/lmutils' \
+    'Written by Alex Rogers (linguisticmind).' \
+    'Linguistic Mind - a language learning tools, tutorials and resources hub' \
+    'https://linguisticmind.github.io'
+
+}
+
+function set_opts {
+
+  if [[ $1 = -- ]]; then
+    k=$((i + 1)) files+=("${args[@]:$k}") i=$((${#args[@]} - 1))
+  elif [[ $1 = -h || $1 = --help ]]; then
+    help=1
+  elif [[ $1 =~ ^--head(=|$) ]]; then
+    if [[ $1 = *=* ]]; then
+      head_re="${1#*=}"
+    else
+      k=$((i + 1)) head_re="${args[$k]}" i=$k
+    fi
+  elif [[ $1 =~ ^--tail(=|$) ]]; then
+    if [[ $1 = *=* ]]; then
+      tail_re="${1#*=}"
+    else
+      k=$((i + 1)) tail_re="${args[$k]}" i=$k
+    fi
+  elif [[ $1 = -r || $1 =~ ^--(rename|run)$ ]]; then
+    rename=1
+  elif [[ $1 = -[sRd] || $1 =~ ^--(simulate|no-rename|dry-run)$ ]]; then
+    unset rename
+  elif [[ $1 =~ ^--(no-ansi(-escape)?|plain(-output)?)$ ]]; then
+    no_ansi_escape=1
+  elif [[ $1 =~ ^--(ansi(-escape)?|no-plain(-output)?)$ ]]; then
+    unset no_ansi_escape
+  elif [[ $1 =   --message-labels ]]; then
+    message_labels=1
+  elif [[ $1 =   --no-message-labels ]]; then
+    unset message_labels
+  elif [[ $1 =   --message-sources ]]; then
+    unset no_message_sources
+  elif [[ $1 =   --no-message-sources ]]; then
+    no_message_sources=1
+  elif [[ $1 =   --rename-in-alphabetical-order ]]; then
+    rename_in_alphabetical_order=1
+  elif [[ $1 =   --rename-in-natural-order ]]; then
+    unset rename_in_alphabetical_order 
+  else
+    if [[ ! $j || ${#args[$I]} = 2 ]]; then
+      unrecognized_opts+=("$1")
+    else
+      unrecognized_opts_multi_letter_opts+=("$1")
+      unrecognized_opts_multi_letter_combs+=("${args[$I]}")
+    fi
+  fi
+
+}
+
+args=("$@")
+
+for (( i=0; i<${#args[@]}; i++ )); do
+
+  I=$i # Saving original value of 'i' in case 'i' gets changed by set_opts
+       # Using 'I' even in non-set_opts contexts for consistency;
+       # reserving 'i' only for those contexts where 'i' gets modified 
+
+  if [[ ${args[$I]} = -* ]]; then
+    if [[ ${args[$I]} = -[^-]* ]]; then
+      [[ ! ${args[$I]} =~ ^-[[:alpha:]]+($|=) ]] && unrecognized_opts_invalid_multi_letter_combs+=("${args[$I]}") && continue
+      opt_letters="${args[$I]%%=*}" substr_length=1
+      for (( j=1; j<${#opt_letters}; j++ )); do
+        [[ $j = $((${#opt_letters} - 1)) ]] && unset substr_length
+        set_opts -"${args[$I]:$j${substr_length:+:$substr_length}}"
+      done
+      unset j
+    else
+      set_opts "${args[$I]}"
+    fi
+  else
+    files+=("${args[$I]}")
+  fi
+
+done
+
+[[ ! $files ]] && files=(*)
+[[ ! $head_re ]] && head_re="$head_re_default"
+[[ ! $tail_re ]] && tail_re="$tail_re_default"
+[[ ! $no_ansi_escape ]] && ansi_escape=1
+[[ ! $no_message_sources ]] && message_sources=1
+[[ ! $rename_in_alphabetical_order ]] && rename_in_natural_order=1
+
+function print_msg {
+
+  local i j msg msg_type
+
+  for (( i=1; i<=$#; i++ )); do
+    if [[ ${!i} = -[^-]* && \
+          ${!i} = -*t    || ${!i} = --type ]]; then
+      j=$((i + 1)) msg_type="${!j}" i=$j
+    else
+      msg="${!i}"
+    fi
+  done
+
+  local msg_source msg_label
+
+  msg_source="${message_sources:+[${0##*/}] }"
+
+  shopt -s nocasematch
+  if [[ $msg_type = ok ]]; then
+    msg_label="${message_labels:+[[ ${ansi_escape:+$'\x1b[38;5;34m'}OK${ansi_escape:+$'\x1b[0m'} ]] }"
+  elif [[ $msg_type = warning ]]; then
+    msg_label="${message_labels:+[[ ${ansi_escape:+$'\x1b[38;5;220m'}WARNING${ansi_escape:+$'\x1b[0m'} ]] }"
+  elif [[ $msg_type = error ]]; then
+    msg_label="${message_labels:+[[ ${ansi_escape:+$'\x1b[38;5;196m'}ERROR${ansi_escape:+$'\x1b[0m'} ]] }"
+  elif [[ $msg_type = info ]]; then
+    msg_label="${message_labels:+[[ ${ansi_escape:+$'\x1b[38;5;33m'}INFO${ansi_escape:+$'\x1b[0m'} ]] }"
+  fi
+  shopt -u nocasematch
+
+  printf '%s%s%s\n'  "$msg_source" "$msg_label" "$msg" >&2
+
+}
+
+for i in "${unrecognized_opts[@]}"; do
+  print_msg --type error "Unrecognized option '$i'."
+done
+
+for (( i=0; i<${#unrecognized_opts_multi_letter_opts[@]}; i++ )); do
+  print_msg --type error "Unrecognized option '${unrecognized_opts_multi_letter_opts[$i]}' in multi-letter combination '${unrecognized_opts_multi_letter_combs[$i]}'."
+done
+
+for i in "${unrecognized_opts_invalid_multi_letter_combs[@]}"; do
+  print_msg --type error "Bad option argument: invalid multi-letter combination '$i'."
+  [[ $i =~ ^-[[:alpha:]-]+($|=) ]] && print_msg --type info "If you meant to enter a long option, make sure to start it with a double hyphen (--)."
+done
+
+[[ ${#unrecognized_opts[@]} -gt 0 || ${#unrecognized_opts_multi_letter_opts[@]} -gt 0 || ${#unrecognized_opts_invalid_multi_letter_combs[@]} -gt 0 ]] && exit 1
+
+[[ $help ]] && print_help && exit
+
+function get_regex {
+  echo "($head_re)(0*[0-9]{$1})($tail_re)"
+}
+
+max_digits=0
+
+# print_msg --type info 'Determining max_digits.'
+
+for file in "${files[@]}"; do
+  if [[ $file =~ $(get_regex $((max_digits + 1))) ]]; then
+    ((max_digits++))
+    max_length=${#file}
+  elif [[ $file =~ $(get_regex 1,) ]]; then
+    [[ ${#file} -lt $max_length ]] && break
+  fi
+done
+
+# print_msg --type info "max_digits: $max_digits"
+
+function repeat_str {
+  [[ $2 = 0 ]] && return
+  printf "$1%.s" $(seq 1 $2)
+}
+
+function get_new_filename {
+  echo "${BASH_REMATCH[1]}$1${BASH_REMATCH[2]}${BASH_REMATCH[3]}"
+}
+
+function rename_files {
+  for file in "${files[@]}"; do
+    if [[ $file =~ $(get_regex ${1:-1,}) ]]; then
+      zeros=$(repeat_str 0 $((max_digits - ${#BASH_REMATCH[2]})))
+      echo "$(get_new_filename "${ansi_escape:+$'\x1b[7m'}$zeros${ansi_escape:+$'\x1b[27m'}")" >&2
+      [[ $rename && $zeros ]] && mv "$file" "$(get_new_filename "$zeros")"
+    fi
+  done
+}
+
+[[ $rename ]] && print_msg --type info 'Renaming.' || print_msg --type info 'Simulating.'
+
+if [[ $rename_in_natural_order ]]; then
+ if [[ ${files[@]} != *$'\n'* ]]; then
+    # print_msg --type info 'Sorting.'
+    IFS=$'\n' files=($(sort -V <<<"${files[*]}"))
+    unset IFS
+    # print_msg --type info 'Done sorting.'
+    rename_files
+  else
+    # print_msg --type info 'Newlines in filenames. Sorting on the fly.'
+    for (( n=1; n<=$max_digits; n++ )); do
+      rename_files "$n"
+    done
+  fi
+else
+  rename_files
+fi
+
+[[ $rename ]] && print_msg --type info 'Done renaming.' || print_msg --type info 'Simulation complete.'

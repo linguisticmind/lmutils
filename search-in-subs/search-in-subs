@@ -1,0 +1,1302 @@
+#!/usr/bin/env bash
+
+shopt -s expand_aliases
+
+type -P gsed 1> /dev/null && alias sed=gsed
+type -P gfold 1> /dev/null && alias fold=gfold
+type -P gfmt 1> /dev/null && alias fmt=gfmt
+type -P gpaste 1> /dev/null && alias paste=gpaste
+type -P gwc 1> /dev/null && alias wc=gwc
+
+function array_width {
+
+  # array_width [--line] --array <array>
+  #
+  # Get length of the longest element in array
+  #
+  # -l, --line   Consider length of the longest line in each array element
+  #              instead of the length of the entire element
+  # -a, --array  Array elements to process
+
+  local line i j lines element longest
+
+  [[ $1 = -l || $1 = --line ]] && line=1 && shift
+  if [[ $1 = -a || $1 = --array ]]; then
+    shift
+  else
+    echo "[$FUNCNAME] Insufficient arguments." >&2
+    return 2
+  fi
+
+  for i in "$@"; do
+    if [[ ! $line ]]; then
+      element="$i"
+    else
+      IFS=$'\n' read -d '' -ra lines <<< "$i"
+      for j in "${lines[@]}"; do
+        [[ ${#j} -gt ${#element} ]] && element="$j"
+      done
+    fi
+    [[ ${#element} -gt $longest ]] && longest="${#element}"
+  done
+  echo $longest
+
+}
+
+function print_help {
+
+  shopt -s checkwinsize; (:)
+
+  local max_width=$COLUMNS \
+        text_left_margin=2 col_spacing=2 text_right_margin=2
+
+  local text_max_width=$((max_width - text_left_margin - text_right_margin))
+
+  function print_blocks {
+
+    local i j width indent formatting blocks
+
+    for (( i=1; i<=$#; i++ )); do
+
+      if [[ ${!i} = -* ]]; then
+
+        [[ ${!i} = -- ]] && j=$((i + 1)) blocks+=("${@:$j}") && break
+
+        if [[ ${!i} =   -[^-]* && \
+              ${!i} =   -*f*   || \
+              ${!i} =~ ^--(fmt|default-formatting) ]]; then
+          unset formatting[${#blocks[@]}]
+          j=$((i + 1)) blocks+=("${!j}") i=$j
+        fi
+
+        if [[ ${!i} =   -[^-]* && \
+              ${!i} =   -*a*   || \
+              ${!i} =~ ^--(fold|alt-formatting) ]]; then
+
+          formatting[${#blocks[@]}]=1
+          j=$((i + 1)) blocks+=("${!j}") i=$j
+
+        fi
+
+        if [[ ${!i} = -[^-]*  && \
+              ${!i} = -*[nF]* || \
+              ${!i} = --no-formatting ]]; then
+
+          formatting[${#blocks[@]}]=2
+          j=$((i + 1)) blocks+=("${!j}") i=$j
+ 
+        fi
+
+        if [[ ${!i} = -[^-]* && \
+              ${!i} = -*w   || ${!i} = --width ]]; then
+          j=$((i + 1)) width="${!j}" i=$j
+        fi
+
+        if [[ ${!i} = -[^-]* && \
+              ${!i} = -*i   || ${!i} = --indent ]]; then
+          j=$((i + 1)) indent="${!j}" i=$j
+        fi
+
+      else
+        blocks+=("${!i}")
+      fi
+
+    done
+
+    [[ ! $width ]] && width="$text_max_width"
+    [[ ! $indent ]] && indent="$text_left_margin"
+
+    for (( i=0; i<${#blocks[@]}; i++ )); do
+      [[ ! ${blocks[$i]} ]] && continue
+      while IFS= read -r line; do
+        printf "%${indent}s%s\n" '' "$line"
+      done < <(if [[ ! ${formatting[$i]} ]]; then
+                 fmt --split-only --width "$width" <<< "${blocks[$i]}"
+               elif [[ ${formatting[$i]} = 1 ]]; then
+                 fold --spaces --width "$width" <<< "${blocks[$i]}"
+               elif [[ ${formatting[$i]} = 2 ]]; then
+                 echo "${blocks[$i]}"
+               fi)
+      printf '\n' # Adds an extra blank line at the bottom of the block
+    done
+
+  }
+
+  function print_opd_block {
+
+    local col1 col1_width col1_line \
+          col2 col2_width col2_line \
+          i 
+
+    col1_width=$(array_width --line --array "${opd_names[@]}" "${opt_names[@]}")
+    col2_width=$((text_max_width - col1_width - col_spacing))
+
+    for (( i=0; i<${#opd_names[@]}; i++ )); do
+
+      while IFS=: read -r col1_line col2_line; do
+        printf "%-$((text_left_margin + col1_width))s%-${col2_width}s\n" \
+          "$col1_line" \
+          "$col2_line"
+      done < <(paste \
+                 --delimiters=: \
+                 \
+                 <(print_blocks \
+                   --width "$col1_width" \
+                   --no-formatting "${opd_names[$i]}") \
+                 \
+                 <(print_blocks \
+                   --width "$col2_width" \
+                   --indent "$col_spacing" \
+                   --alt-formatting "${opd_values[$i]}" \
+                   "${opd_descriptions[$i]}"))
+
+    done
+
+  }
+
+  function print_opt_block {
+
+    local col1 col1_width col1_line \
+          col2 col2_width col2_line \
+          i 
+
+    col1_width=$(array_width --line --array "${opt_names[@]}")
+    col2_width=$((text_max_width - col1_width - col_spacing))
+
+    for (( i=0; i<${#opt_names[@]}; i++ )); do
+
+      while IFS=: read -r col1_line col2_line; do
+        printf "%-$((text_left_margin + col1_width))s%-${col2_width}s\n" \
+          "$col1_line" \
+          "$col2_line"
+      done < <(paste \
+                 --delimiters=: \
+                 \
+                 <(print_blocks \
+                   --width "$col1_width" \
+                   --no-formatting "${opt_names[$i]}") \
+                 \
+                 <(print_blocks \
+                   --width "$col2_width" \
+                   --indent "$col_spacing" \
+                   --alt-formatting "${opt_values[$i]}" \
+                   --alt-formatting "${opt_aliases[$i]}" \
+                   "${opt_descriptions[$i]}"))
+
+    done
+
+  }
+
+  printf '\n' # Adds an extra blank line at the top before printing help text
+
+  print_blocks \
+    "${0##*/} - search for words in subtitle files" \
+    'Requires GNU coreutils.' \
+    "${0##*/} [<options>] <search_term> ... [<options>]"
+
+  # Operand info arrays:
+  # 
+  # opd_names
+  # opd_values
+  # opd_descriptions
+
+  opd_names[0]='<search_term> ...'
+  opd_values[0]='<string|regex>'
+  opd_descriptions[0]="Terms to search for in subtitle files. Can be POSIX Extended Regular Expressions if '-r, --regex' is set, otherwise literal text strings."$'\n\n'
+  opd_descriptions[0]+="Number and type of consecutive whitespace characters is ignored, unless '-e, --strict-search' is set. See there for details."$'\n\n'
+  opd_descriptions[0]+="When multiple search terms are given, statistics are calculated for matches to <search_term_1> *or* <search_term_2> *or* <search_term_3>, and so on, without keeping track of which term was the hit. Think searching for different forms or spellings of the same word, variants of the same phrase etc."$'\n'
+  opd_descriptions[0]+='In regex terms, they are compiled into a regular expression of the form (<s1>|<s2>|<s3>|...), and statistics for matches to that regex are calculated.'$'\n'
+  opd_descriptions[0]+='If statistics on individual search terms are needed, multiple searches should be run.'
+
+  # Option info arrays:
+  # 
+  # opt_names
+  # opt_values
+  # opt_aliases
+  # opt_descriptions
+
+  opt_names[0]=$'-s, --search-items\n-s=, --search-items='
+  opt_values[0]=$'<file|directory> ...\n<file|directory>'
+  opt_aliases[0]=$'(--search)'
+  opt_descriptions[0]="Subtitle files to search. Must be .srt files. If a directory is given, all .srt files in that directory will be searched. (See also '-x, --exclude-items'.)"$'\n\n'
+  opt_descriptions[0]+='If not set, defaults to current working directory.'$'\n\n'
+  opt_descriptions[0]+='Files will be searched in the given order.'$'\n\n'
+  opt_descriptions[0]+='**Shell globbing and end of options**'$'\n\n'
+  opt_descriptions[0]+='Shell globbing patterns may be used if values are passed as separate arguments (i.e. without using an equals sign after the option name).'$'\n\n'
+  opt_descriptions[0]+="If setting this option right before the search terms, make sure to end the argument list with the end of options option (--). See more on the '--' option below."$'\n\n'
+  opt_descriptions[0]+="To pass a value starting with a hyphen (-), use the equals sign after the option name."
+
+  opt_names[1]=$'-x, --exclude-items\n-x=, --exclude-items='
+  opt_values[1]=$'<file|directory> ...\n<file|directory>'
+  opt_aliases[1]=$'(--exclude)'
+  opt_descriptions[1]="Exclude files (from those included by the '-s, --search-items' option) from search. Files in directories are matched by the same principle as in '-s, --search-items'."$'\n\n'
+  opt_descriptions[1]+="The order in which '-x, --exclude-items' and '-s, --search-items' options are set and the order of the files or directories specified under '-x, --exclude-items' does not matter."$'\n\n'
+  opt_descriptions[1]+="See also the subsection 'Shell globbing and end of options' under '-s, --search-items'. Same applies here."
+
+  opt_names[2]='-v, --verbose'
+  opt_descriptions[2]='Print names of all files as they are being searched.'
+
+  opt_names[3]='-V, --no-verbose'
+  opt_descriptions[3]="Disables '-v, --verbose'. This is the default behavior."
+
+  opt_names[4]='-i, --inverse'
+  opt_aliases[4]=$'(-n, --inverse-search,\n --invert, --invert-search,\n --no-match, --no-match-search)'
+  opt_descriptions[4]='Print names of the files that do *not* contain the search term.'$'\n'
+  opt_descriptions[4]+="Gives the same output as '-v, --verbose', but without the matches."
+
+  opt_names[5]='-I, --no-inverse'
+  opt_aliases[5]=$'(-n, --no-inverse-search,\n --no-invert, --no-invert-search,\n --match, --match-search)'
+  opt_descriptions[5]="Disables '-i, --inverse'. This is the default behavior."
+
+  opt_names[6]='-q, --quiet'
+  opt_aliases[6]=$'(--quiet-search,\n --silent, --silent-search)'
+  opt_descriptions[6]="Suppress search output: neither matches nor filenames are shown as the files are being searched. Useful with the '--statistics' option if one only wishes to see the statistics."
+
+  opt_names[7]='-Q, --no-quiet'
+  opt_aliases[7]=$'(--no-quiet-search,\n --no-silent, --no-silent-search)'
+  opt_descriptions[7]="Don't suppress search output. This is the default behavior."
+
+  opt_names[8]='-r, --regex'
+  opt_aliases[8]=$'(--regexp,\n --regex-search, --regexp-search)'
+  opt_descriptions[8]='Search using POSIX Extended Regular Expressions.'
+
+  opt_names[9]='-R, --no-regex'
+  opt_aliases[9]=$'(--no-regexp,\n --no-regex-search, --no-regexp-search,\n --string, --string-search)'
+  opt_descriptions[9]="Search using literal strings. Disables '-r, --regex'. This is the default behavior."
+
+  opt_names[10]='-c, --match-case'
+  opt_aliases[10]=$'(--case-sensitive)'
+  opt_descriptions[10]='Distinguish between upper and lower case when searching.'
+
+  opt_names[11]='-C, --no-match-case'
+  opt_aliases[11]=$'(--case-insensitive)'
+  opt_descriptions[11]="Search without distinguishing between upper and lower case. Disables '-c, --match-case'. This is the default behavior."
+
+  opt_names[12]='-e, --strict-search'
+  opt_aliases[12]=$'(--exact,\n --exact-search, --strict)'
+  opt_descriptions[12]="Match whitespace strictly when searching. (See '-E, --no-strict-search'.)"
+
+  opt_names[13]='-E, --no-strict-search'
+  opt_aliases[13]=$'(--no-exact,\n --no-exact-search, --no-strict)'
+  opt_descriptions[13]="Treat whitespace characters as interchangeable when searching. The number of consecutive whitespace characters will also be ignored."$'\n'
+  opt_descriptions[13]+='Most importantly, this allows to treat line breaks in subtitles lines the same as spaces.'$'\n\n'
+  opt_descriptions[13]+="Disables '-e, --strict-search'. This is the default behavior."$'\n\n'
+  opt_descriptions[13]+="Whitespace characters are: space, newline, carriage return, horizontal tab, vertical tab and form feed (POSIX ERE [:space:] character class)."
+
+  opt_names[14]='--'
+  opt_descriptions[14]='End of options. All arguments after this option will be treated as operands.'$'\n\n'
+  opt_descriptions[14]+="Operands are non-option arguments. In ${0##*/} those are the <search_term> arguments."$'\n'
+  opt_descriptions[14]+='Thus, this option allows, for instance, to start a search term with a hyphen (-).'$'\n\n'
+  opt_descriptions[14]+="See also 'Shell globbing and end of options' under '-s, --search-items' for another use case."
+
+  opt_names[15]='-h, --help'
+  opt_descriptions[15]='Print this help message.'$'\n'
+  opt_descriptions[15]+='This message also gets printed if the script is run with no arguments.'
+
+  opt_names[16]='--statistics'
+  opt_aliases[16]=$'(--stats)'
+  opt_descriptions[16]="Collect and display statistics about the search."
+
+  opt_names[17]='--no-statistics'
+  opt_aliases[17]=$'(--no-stats)'
+  opt_descriptions[17]="Don't collect or display statistics about the search. Disables '--statistics'. This is the default behavior."
+
+  opt_names[18]='--stats-compact-headers'
+  opt_aliases[18]=$'(--statistics-compact-headers)'
+  opt_descriptions[18]="Abbreviate long headers in the statistics output."
+
+  opt_names[19]='--stats-no-compact-headers'
+  opt_aliases[19]=$'(--statistics-no-compact-headers)'
+  opt_descriptions[19]="Don't abbreviate long headers in the statistics output. Disables '--stats-compact-headers'. This is the default behavior."
+
+  opt_names[20]='--stats-no-headers'
+  opt_aliases[20]=$'(--statistics-no-headers)'
+  opt_descriptions[20]="Hide headers in the statistics output."
+
+  opt_names[21]='--stats-headers'
+  opt_aliases[21]=$'(--statistics-headers)'
+  opt_descriptions[21]="Hide headers in the statistics output. Disables '--stats-no-headers'. This is the default behavior."
+
+  opt_names[22]='--stats-no-file-numbers'
+  opt_aliases[22]=$'(--stats-no-file-nums,\n --statistics-no-file-numbers,\n --statistics-no-file-nums)'
+  opt_descriptions[22]="Hide file numbers in the statistics output."
+
+  opt_names[23]='--stats-file-numbers'
+  opt_aliases[23]=$'(--stats-file-nums,\n --statistics-file-numbers,\n --statistics-file-nums)'
+  opt_descriptions[23]="Show file numbers in the statistics output. Disables '--stats-no-file-numbers'. This is the default behavior."
+
+  opt_names[24]='--no-ansi-escape'
+  opt_aliases[24]=$'(--no-ansi,\n --plain-output, --plain)'
+  opt_descriptions[24]="Disable colorization and formatting (ANSI escape sequences) in the output of ${0##*/}."
+
+  opt_names[25]='--ansi-escape'
+  opt_aliases[25]=$'(--ansi,\n --no-plain-output, --no-plain)'
+  opt_descriptions[25]="Keep colorization and formatting (ANSI escape sequences) in the output of ${0##*/}. Disables '--no-ansi-escape'. This is the default behavior."
+
+  opt_names[26]='--message-labels'
+  opt_descriptions[26]="When ${0##*/} prints a message, add a label categorizing it as informational, warning, error etc."
+
+  opt_names[27]='--no-message-labels'
+  opt_descriptions[27]="Don't add labels to messages printed by  ${0##*/}. Disables '--message-labels'. This is the default behavior."
+
+  opt_names[28]='--no-message-sources'
+  opt_descriptions[28]="When printing a message, don't show the name of the script that issued the message."
+
+  opt_names[29]='--message-sources'
+  opt_descriptions[29]="When printing a message, show the name of the script that issued the message. Disables '--no-message-sources'. This is the default behavior."
+
+  print_opd_block
+
+  print_blocks \
+    'Options'
+
+  print_opt_block
+
+  print_blocks \
+    'About' \
+    "${0##*/} is part of lmutils - collection of command line tools for language learning and more."$'\n''lmutils are hosted at https://github.com/linguisticmind/lmutils' \
+    'Written by Alex Rogers (linguisticmind).' \
+    'Linguistic Mind - a language learning tools, tutorials and resources hub' \
+    'https://linguisticmind.github.io'
+
+}
+
+[[ $# = 0 ]] && print_help && exit
+
+function set_opts {
+
+  if [[ $1 = -- ]]; then
+    k=$((i + 1)) search_terms+=("${args[@]:$k}") i=$((${#args[@]} - 1))
+  elif [[ $1 = -h || $1 = --help ]]; then
+    help=1
+  elif [[ $1 = -v || $1 = --verbose ]]; then
+    verbose=1
+  elif [[ $1 = -V || $1 = --no-verbose ]]; then
+    unset verbose
+  elif [[ $1 =   -[ni] || \
+          $1 =~ ^--(no-match|inver(se|t))(-search)?$ ]]; then
+    inverse_search=1
+  elif [[ $1 =   -[NI] || \
+          $1 =~ ^--(match|no-inver(se|t))(-search)?$ ]]; then
+    unset inverse_search
+  elif [[ $1 =   -q || \
+          $1 =~ ^--(silent|quiet)(-search)?$ ]]; then
+    silent_search=1
+  elif [[ $1 =   -Q || \
+          $1 =~ ^--no-(silent|quiet)(-search)?$ ]]; then
+    unset silent_search
+  elif [[ $1 =   -r || \
+          $1 =~ ^--regexp?(-search)?$ ]]; then
+    regex_search=1
+  elif [[ $1 =   -R || \
+          $1 =~ ^--(no-regexp?|string)(-search)?$ ]]; then
+    unset regex_search
+  elif [[ $1 =   -c || \
+          $1 =~ ^--(match-case|case-sensitive)$ ]]; then
+    match_case=1
+  elif [[ $1 =   -C || \
+          $1 =~ ^--(no-match-case|case-insensitive)$ ]]; then
+    unset match_case
+  elif [[ $1 =   -e || \
+          $1 =~ ^--(exact|strict)(-search)?$ ]]; then
+    strict_search=1
+  elif [[ $1 =   -E || \
+          $1 =~ ^--no-(exact|strict)(-search)?$ ]]; then
+    unset strict_search
+  elif [[ $1 =~ ^--stat(istic)?s$ ]]; then
+    statistics=1
+  elif [[ $1 =~ ^--no-stat(istic)?s$ ]]; then
+    unset statistics
+  elif [[ $1 =~ ^--stat(istic)?s-compact-headers$ ]]; then
+    statistics_compact_headers=1
+  elif [[ $1 =~ ^--stat(istic)?s-no-compact-headers$ ]]; then
+    unset statistics_compact_headers
+  elif [[ $1 =~ ^--stat(istic)?s-no-headers$ ]]; then
+    statistics_no_headers=1
+  elif [[ $1 =~ ^--stat(istic)?s-headers$ ]]; then
+    unset statistics_no_headers
+   elif [[ $1 =~ ^--stat(istic)?s-no-file-num(ber)?s$ ]]; then
+    statistics_no_file_numbers=1
+  elif [[ $1 =~ ^--stat(istic)?s-file-num(ber)?s$ ]]; then
+    unset statistics_no_file_numbers
+  elif [[ $1 =~ ^--(no-ansi(-escape)?|plain(-output)?)$ ]]; then
+    no_ansi_escape=1
+  elif [[ $1 =~ ^--(ansi(-escape)?|no-plain(-output)?)$ ]]; then
+    unset no_ansi_escape
+  elif [[ $1 =   --message-labels ]]; then
+    message_labels=1
+  elif [[ $1 =   --no-message-labels ]]; then
+    unset message_labels
+  elif [[ $1 =   --message-sources ]]; then
+    unset no_message_sources
+  elif [[ $1 =   --no-message-sources ]]; then
+    no_message_sources=1
+  elif [[ ! $substr_length && \
+          $1 =~ ^-s($|=) || $1 =~ ^--search(-items)?($|=) ]]; then
+    if [[ $1 = *=* ]]; then
+      search_items+=("${1#*=}")
+    else
+      for (( k=$((i + 1)); k<${#args[@]}; k++ )); do
+        [[ ${args[$k]} = -* ]] && i=$((k - 1)) && break
+        search_items+=("${args[$k]}")
+        [[ $k = $((${#args[@]} - 1)) ]] && i=$k && break
+      done
+    fi
+  elif [[ ! $substr_length && \
+          $1 =~ ^-x($|=) || $1 =~ ^--exclude(-items)?($|=) ]]; then
+    if [[ $1 = *=* ]]; then
+      exclude_items+=("${1#*=}") 
+    else
+      for (( k=$((i + 1)); k<${#args[@]}; k++ )); do
+        [[ ${args[$k]} = -* ]] && i=$((k - 1)) && break
+        exclude_items+=("${args[$k]}")
+        [[ $k = $((${#args[@]} - 1)) ]] && i=$k && break
+      done
+    fi
+  else
+    tmp="${args[$I]%%=*}"
+    if [[ ! $j || ${#tmp} = 2 ]]; then
+      unrecognized_opts+=("$1")
+    else
+      unrecognized_opts_multi_letter_opts+=("$1")
+      unrecognized_opts_multi_letter_combs+=("${args[$I]}")
+    fi
+  fi
+
+}
+
+args=("$@")
+
+for (( i=0; i<${#args[@]}; i++ )); do
+
+  I=$i # Saving original value of 'i' in case 'i' gets changed by set_opts
+       # Using 'I' even in non-set_opts contexts for consistency;
+       # reserving 'i' only for those contexts where 'i' gets modified 
+
+  if [[ ${args[$I]} = -* ]]; then
+    if [[ ${args[$I]} = -[^-]* ]]; then
+      [[ ! ${args[$I]} =~ ^-[[:alpha:]]+($|=) ]] && unrecognized_opts_invalid_multi_letter_combs+=("${args[$I]}") && continue
+      opt_letters="${args[$I]%%=*}" substr_length=1
+      for (( j=1; j<${#opt_letters}; j++ )); do
+        [[ ! $j = $((${#opt_letters} - 1)) ]] &&
+        set_opts -"${args[$I]:$j:$substr_length}" ||
+        set_opts -"${args[$I]:$j}"
+      done
+      unset j
+    else
+      set_opts "${args[$I]}"
+    fi
+  else
+    search_terms+=("${args[$I]}")
+  fi
+
+done
+
+[[ ! $match_case ]] && no_match_case=1
+[[ ! $no_ansi_escape ]] && ansi_escape=1
+[[ ! $no_message_sources ]] && message_sources=1
+[[ ! $statistics_no_headers ]] && statistics_headers=1
+[[ ! $statistics_no_file_numbers ]] && statistics_file_numbers=1
+
+function print_msg {
+
+  local i j msg msg_type
+
+  for (( i=1; i<=$#; i++ )); do
+    if [[ ${!i} = -[^-]* && \
+          ${!i} = -*t    || ${!i} = --type ]]; then
+      j=$((i + 1)) msg_type="${!j}" i=$j
+    else
+      msg="${!i}"
+    fi
+  done
+
+  local msg_source msg_label
+
+  msg_source="${message_sources:+[${0##*/}] }"
+
+  shopt -s nocasematch
+  if [[ $msg_type = ok ]]; then
+    msg_label="${message_labels:+[[ ${ansi_escape:+$'\x1b[38;5;34m'}OK${ansi_escape:+$'\x1b[0m'} ]] }"
+  elif [[ $msg_type = warning ]]; then
+    msg_label="${message_labels:+[[ ${ansi_escape:+$'\x1b[38;5;220m'}WARNING${ansi_escape:+$'\x1b[0m'} ]] }"
+  elif [[ $msg_type = error ]]; then
+    msg_label="${message_labels:+[[ ${ansi_escape:+$'\x1b[38;5;196m'}ERROR${ansi_escape:+$'\x1b[0m'} ]] }"
+  elif [[ $msg_type = info ]]; then
+    msg_label="${message_labels:+[[ ${ansi_escape:+$'\x1b[38;5;33m'}INFO${ansi_escape:+$'\x1b[0m'} ]] }"
+  fi
+  shopt -u nocasematch
+
+  printf '%s%s%s\n'  "$msg_source" "$msg_label" "$msg" >&2
+
+}
+
+for i in "${unrecognized_opts[@]}"; do
+  print_msg --type error "Unrecognized option '${i%%=*}'."
+done
+
+for (( i=0; i<${#unrecognized_opts_multi_letter_opts[@]}; i++ )); do
+  print_msg --type error "Unrecognized option '${unrecognized_opts_multi_letter_opts[$i]%%=*}' in multi-letter combination '${unrecognized_opts_multi_letter_combs[$i]%%=*}'."
+done
+
+for i in "${unrecognized_opts_invalid_multi_letter_combs[@]}"; do
+  print_msg --type error "Bad option argument: invalid multi-letter combination '$i'."
+  [[ $i =~ ^-[[:alpha:]-]+($|=) ]] && print_msg --type info "If you meant to enter a long option, make sure to start it with a double hyphen (--)."
+done
+
+[[ ${#unrecognized_opts[@]} -gt 0 || ${#unrecognized_opts_multi_letter_opts[@]} -gt 0 || ${#unrecognized_opts_invalid_multi_letter_combs[@]} -gt 0 ]] && exit 1
+
+[[ $help ]] && print_help && exit
+
+
+# where_in_array [--last] --value <term> --array <array>
+#                         --glob  <term> --array <array>
+#                         --regex <term> --array <array>
+#
+# is_in_array    *same usage* 
+# 
+# -l, --last               Find last occurence of <term>
+# -v, --value              Find exact value of <term>
+# -g, --glob               Find first/last glob match
+# -r, --regex, --regexp    Find first/last regex match
+# -a, --array              Array elements to search in
+#
+# is_in_array is a wrapper for where_in_array with output (stdout) silenced
+
+function where_in_array {
+
+  shopt -s extglob
+
+  local i j last mode term array
+
+  for (( i=1; i<=$#; i++ )); do
+
+    if [[ ${!i} = -[^-]* && \
+          ${!i} = -*l*   || ${!i} = --last ]]; then
+      last=1
+    elif [[ ${!i} = -[^-]* && \
+            ${!i} = -*v    || ${!i} = --value ]]; then
+      mode=value j=$((i + 1)) term="${!j}" i=$j
+    elif [[ ${!i} = -[^-]* && \
+          ${!i} = -*g      || ${!i} = --glob ]]; then
+      mode=glob j=$((i + 1)) term="${!j}" i=$j
+    elif [[ ${!i} = -[^-]* && \
+            ${!i} = -*r    || ${!i} =~ ^--regexp? ]]; then
+      mode=regex j=$((i + 1)) term="${!j}" i=$j
+    elif [[ ${!i} = -[^-]* && \
+            ${!i} = -a     || ${!i} = --array ]]; then
+      array=("${@:$((i + 1))}")
+      array_set=1 # Array may be empty, thus can't use the 'array' variable to check if this required options is set
+      break
+    fi
+
+  done
+
+  [[ ! $term || ! $array_set ]] && echo "[$FUNCNAME] Insufficient arguments." >&2 && return 2
+  [[ ! $array ]] && return 1 # If array is empty, term is not in array
+
+  local i exp1 exp2 exp3
+
+  if [[ ! $last ]]; then
+    exp1='i=0' exp2="i<${#array[@]}" exp3='i++'
+  else
+    exp1="i=$((${#array[@]} - 1))" exp2='i>=0' exp3='i--'
+  fi
+
+  for (( $exp1; $exp2; $exp3 )); do
+
+    if [[ $mode = value ]]; then
+      [[ ${array[$i]} = "$term" ]] && echo "$i" && return 0
+    elif [[ $mode = glob ]]; then
+      [[ ${array[$i]} = $term ]] && echo "$i" && return 0
+    elif [[ $mode = regex ]]; then
+      [[ ${array[$i]} =~ $term ]] && echo "$i" && return 0
+    fi
+
+  done
+
+  return 1
+
+}
+
+[[ ${#search_terms[@]} = 0 ]] && print_msg --type error "No search terms provided. Make sure to use the '--' option if specifying a list of files right before the search terms." && exit 1
+
+function is_in_array {
+  where_in_array "$@" 1> /dev/null
+}
+
+for i in "${search_items[@]}"; do
+  ! is_in_array --value "$i" --array "${search_items_final[@]}" &&
+  ! is_in_array --value "$i" --array "${exclude_items[@]}" &&
+  search_items_final+=("$i")
+done
+
+if [[ ! $search_items_final && ! $search_items ]]; then
+  shopt -s nullglob
+  search_items_final=(*.srt)
+  [[ ! $search_items_final ]] && print_msg --type error "No subtitle files in current directory." && exit 1
+fi
+
+for i in "${search_items_final[@]}"; do
+  if [[ ! -e "$i" ]]; then
+    print_msg --type warning "File '${i//\'/\'\\\'\'}' not found. Skipping."
+    continue
+  elif [[ -d "$i" ]]; then
+    search_files+=("${i%/}/*.srt")
+  elif [[ -f "$i" ]]; then
+    if [[ $i = *.srt ]]; then
+      search_files+=("$i")
+    else
+      print_msg --type warning "File '${i//\'/\'\\\'\'}' does not have a .srt extension. Skipping."
+      continue
+    fi
+  fi
+done
+
+[[ ${#search_files[@]} = 0 ]] && print_msg --type error "No files left to search in." && exit 1
+
+for i in "${search_terms[@]}"; do
+  search_term_re="$i"
+  [[ ! $regex_search ]] && search_term_re=$(echo "$search_term_re" | sed -E 's/[][().*?+|^$/]/\\&/g')
+  [[ ! $strict_search ]] && search_term_re="${search_term_re// /[[:space:]]+}"
+  search_terms_re+="$search_term_re|"
+done
+search_terms_re="${search_terms_re%|}"
+
+re_bom='\xef\xbb\xbf'
+re_num='[0-9]+'
+re_time='[0-9]{2}:[0-9]{2}:[0-9]{2},[0-9]{3}'
+re_empty_line='^[^\r]+\r?$'
+re_ansi_esc=$'\x1b\[[0-9;]+m'
+
+# Stats arrays:
+#
+# stats_searched_files
+# stats_matched_sub_lines
+# stats_total_sub_lines
+# stats_unmatched_sub_lines
+# stats_matched_sub_lines_percentage
+
+function total_sub_lines {
+
+  sed -nE \
+    -e "1 s/^$re_bom// # Remove BOM" \
+    -e "/^$re_num\r?$/ {
+          h
+          n
+          /^$re_time --> $re_time\r?$/ {
+            :loop; n; $ {x; s/^($re_num)\r?$/\1/p}; /$re_empty_line/b loop
+          }
+        }" \
+    "$1"
+
+}
+
+function calc_percentage {
+
+  # calc_percentage <a> <b> <precision>
+
+  a="${1:-0}" b="${2:-0}"
+  precision="${3:-2}"
+
+  [[ ! $a =~ ^[0-9]+$ || ! $b =~ ^[0-9]+$ || ! $precision =~ ^[0-9]+$ ]] &&
+  echo "[$FUNCNAME] One of the passed values is not a number: a='${a//\'/\'\\\'\'}' b='${b//\'/\'\\\'\'}' precision='${precision//\'/\'\\\'\'}'" >&2 && return 1
+  [[ $b = 0 ]] && echo "[$FUNCNAME] Cannot divide by zero: a='${a//\'/\'\\\'\'}' b='${b//\'/\'\\\'\'}' precision='${precision//\'/\'\\\'\'}'" >&2 && return 1
+
+  [[ $precision = 0 ]] && echo $((a / b)) && return
+
+  # Help with math from this post: https://stackoverflow.com/a/50269801
+
+  P1=$((10 ** (precision + 1))) P2=$((P1 / 10))
+
+  x=$((a * P1 * 100 / b + (a < 0 ? -5 : 5)))
+
+  printf "%d.%0${precision}d\n" \
+    $((x / P1)) \
+    $(((x < 0 ? -x : x) / 10 % P2))  
+
+}
+
+[[ $silent_search ]] && print_msg --type info "Searching silently."
+
+for i in "${search_files[@]}"; do
+
+  if [[ $statistics ]]; then
+    stats_searched_files+=("$i")
+    stats_current_file_index=$((${#stats_searched_files[@]} - 1))
+    stats_total_sub_lines+=($(total_sub_lines "$i"))
+
+    stats_unmatched_sub_lines[$stats_current_file_index]=${stats_total_sub_lines[$stats_current_file_index]}
+  fi
+
+  while read -r line; do
+
+    if [[ $statistics && \
+          $line =~ ^($re_ansi_esc)?$re_num($re_ansi_esc)?\r?$ ]]; then
+      ((stats_matched_sub_lines[$stats_current_file_index]++))
+      ((stats_unmatched_sub_lines[$stats_current_file_index]--))
+    fi
+
+    if [[ ! $silent_search && ! $inverse_search ]]; then
+
+      if [[ ! $file_has_matches ]]; then
+        [[ ! $first_match_ever ]] && first_match_ever=1 && echo # Adds an extra blank line before printing the filename of the first match
+        echo -e "${ansi_escape:+\x1b[38;5;34m}$i${ansi_escape:+\x1b[39m}"
+        echo
+        file_has_matches=1
+      fi
+
+      echo "$line"
+
+    else
+      file_has_matches=1
+      break
+    fi
+
+  done < <(sed -nE \
+    -e "1 s/^$re_bom// # Remove BOM" \
+    -e "/^$re_num\r?$/ {
+          s/^($re_num)(\r?)$/${ansi_escape:+\x1b[2m}\1${ansi_escape:+\x1b[22m}\2/ 
+          h
+          n
+          /^$re_time --> $re_time\r?$/ {
+            s/^($re_time --> $re_time)(\r?)$/${ansi_escape:+\x1b[2m}\1${ansi_escape:+\x1b[22m}\2\n/
+            H
+            :loop; n; H; /$re_empty_line/b loop
+            x
+            /\n\n.*$search_terms_re/${no_match_case:+I} {
+              s/$search_terms_re/${ansi_escape:+\x1b[7m}&${ansi_escape:+\x1b[27m}/g${no_match_case:+I}
+              s/<b>/${ansi_escape:+\x1b[1m}/g
+              s/<\/b>/${ansi_escape:+\x1b[22m}/g # '22' is correct. 
+                                                 # It stands for 'neither
+                                                 # bold (1) nor faint (2)'.
+              s/<i>/${ansi_escape:+\x1b[3m}/g
+              s/<\/i>/${ansi_escape:+\x1b[23m}/g
+              s/<u>/${ansi_escape:+\x1b[4m}/g
+              s/<\/u>/${ansi_escape:+\x1b[24m}/g
+              s/<s>/${ansi_escape:+\x1b[9m}/g
+              s/<\/s>/${ansi_escape:+\x1b[29m}/g
+              p
+            }
+          }
+        }" \
+    "$i")
+
+  if [[ ! $silent_search && ! $file_has_matches && \
+        ($verbose || $inverse_search) ]]; then
+    echo -e "${ansi_escape:+\x1b[2m}$i${ansi_escape:+\x1b[22m}"
+  fi
+ 
+  [[ ${stats_total_sub_lines[$stats_current_file_index]} ]] &&
+  stats_matched_sub_lines_percentage[$stats_current_file_index]=$(
+    calc_percentage \
+      "${stats_matched_sub_lines[$stats_current_file_index]}" \
+      "${stats_total_sub_lines[$stats_current_file_index]}"
+  )
+
+  unset file_has_matches
+
+done
+
+function print_stats {
+
+  # Formatting
+
+  # Variables that change values thoughout execution
+  # have their initial values stored in variables
+  # of the same name suffixed with _init
+
+  local ansi_esc_line_init[0]=$'\x1b[2m' \
+        ansi_esc_line_init[1]=$'\x1b[22m' \
+        ansi_esc_header_init[0]=$'\x1b[2m' \
+        ansi_esc_header_init[1]=$'\x1b[22m' \
+        ansi_esc_header_bg_init[0]=$'\x1b[48;5;233m' \
+        ansi_esc_header_bg_init[1]=$'\x1b[49m' \
+        ansi_esc_file_init[0]=$'\x1b[38;5;34m' \
+        ansi_esc_file_init[1]=$'\x1b[39m' \
+        ansi_esc_matched_sub_lines_init[0]=$'\x1b[38;5;34m' \
+        ansi_esc_matched_sub_lines_init[1]=$'\x1b[39m' \
+        ansi_esc_total_sub_lines[0]=$'\x1b[38;5;33m' \
+        ansi_esc_total_sub_lines[1]=$'\x1b[39m' \
+        ansi_esc_unmatched_sub_lines[0]=$'\x1b[38;5;208m' \
+        ansi_esc_unmatched_sub_lines[1]=$'\x1b[39m' \
+        ansi_esc_matched_sub_lines_percentage_init[0]=$'\x1b[38;5;220m' \
+        ansi_esc_matched_sub_lines_percentage_init[1]=$'\x1b[39m' \
+        ansi_esc_punct_init[0]=$'\x1b[2m' \
+        ansi_esc_punct_init[1]=$'\x1b[22m'
+
+  function array_sum {
+    echo $(($(IFS=+; echo "$*")))
+  }
+
+  # Headers
+
+  local nums_header \
+        searched_files_header \
+        matched_sub_lines_header \
+        total_sub_lines_header \
+        unmatched_sub_lines_header \
+        matched_sub_lines_percentage_header \
+        average_header \
+        total_header
+
+  if [[ ! $statistics_no_headers ]]; then
+    searched_files_header=File
+    [[ ! $statistics_compact_headers ]] && matched_sub_lines_header=Matched || matched_sub_lines_header=M
+    [[ ! $statistics_compact_headers ]] && total_sub_lines_header=Total || total_sub_lines_header=T
+    [[ ! $statistics_compact_headers ]] && unmatched_sub_lines_header=Unmatched || unmatched_sub_lines_header=U
+    [[ ! $statistics_compact_headers ]] && matched_sub_lines_percentage_header='Matched %' || matched_sub_lines_percentage_header=M%
+    [[ ! $statistics_compact_headers ]] && average_header=Average || average_header=A
+    [[ ! $statistics_compact_headers ]] && total_header=Total || total_header=T
+  fi
+
+  # Total values
+
+  local stats_total_files_with_matches \
+        stats_total_files \
+        stats_total_files_without_matches \
+        stats_total_files_with_matches_percentage \
+        stats_total_matched_sub_lines \
+        stats_grand_total_sub_lines \
+        stats_total_unmatched_sub_lines \
+        stats_total_matched_sub_lines_percentage \
+
+  stats_total_files_with_matches=${#stats_matched_sub_lines[@]}
+  stats_total_files=${#stats_searched_files[@]}
+  stats_total_files_without_matches=$((
+    stats_total_files - stats_total_files_with_matches
+  ))
+  stats_total_files_with_matches_percentage=$(
+    calc_percentage \
+      "$stats_total_files_with_matches" \
+      "$stats_total_files"
+  )
+  stats_total_matched_sub_lines=$(
+    array_sum \
+      "${stats_matched_sub_lines[@]}"
+  )
+  stats_grand_total_sub_lines=$(
+    array_sum \
+      "${stats_total_sub_lines[@]}"
+  )
+  stats_total_unmatched_sub_lines=$(
+    array_sum \
+      "${stats_unmatched_sub_lines[@]}"
+  )
+  stats_total_matched_sub_lines_percentage=$(
+    calc_percentage \
+      "$stats_total_matched_sub_lines" \
+      "$stats_grand_total_sub_lines"
+  )
+
+  # Average values
+
+  local stats_average_matched_lines_per_file \
+        stats_average_lines_per_file \
+        stats_average_unmatched_lines_per_file \
+        stats_average_matched_sub_lines_percentage \
+
+  stats_average_matched_lines_per_file=$((
+    stats_total_matched_sub_lines / stats_total_files_with_matches
+  ))
+  stats_average_lines_per_file=$((
+    stats_grand_total_sub_lines / stats_total_files
+  ))
+  stats_average_unmatched_lines_per_file=$((
+    stats_average_lines_per_file - stats_average_matched_lines_per_file
+  ))
+  stats_average_matched_sub_lines_percentage=$(
+    calc_percentage \
+      "$stats_average_matched_lines_per_file" \
+      "$stats_average_lines_per_file"
+  )
+
+  # Column widths
+
+  local file_nums_col_width_no_extra \
+        searched_files_col_width \
+        matched_sub_lines_col_width \
+        total_sub_lines_col_width \
+        unmatched_sub_lines_col_width_no_extra \
+        matched_sub_lines_percentage_col_width_no_extra \
+
+  # Values that represent column width
+  # excluding extra characters in the column
+  # are suffixed with _no_extra
+
+  function get_col_width_with_header {
+    local header="$1" col_width_no_extra="$2" extra="${3:-0}"
+    local col_width_with_extra=$((col_width_no_extra + extra))
+    echo $((${#header} > col_width_with_extra ? ${#header} : col_width_with_extra))
+  }
+
+  file_nums_col_width=$(
+    get_col_width_with_header \
+      "$nums_header" \
+      "$(array_width --array \
+           "${statistics_file_numbers:+${stats_total_files/%/.}}" \
+           "${average_header}" \
+           "${total_header}")"
+  )
+  searched_files_col_width=$(
+    array_width --array \
+      "${stats_searched_files[@]}" \
+      "$files_total_cell"
+  )
+  matched_sub_lines_col_width=$(
+    array_width --array \
+      "$stats_total_matched_sub_lines" \
+      "$matched_sub_lines_header"
+  )
+  total_sub_lines_col_width=$(
+    array_width --array \
+      "$stats_grand_total_sub_lines" \
+      "$total_sub_lines_header"
+  )
+
+  unmatched_sub_lines_col_width=$(
+    get_col_width_with_header \
+      "$unmatched_sub_lines_header" \
+      "${#stats_total_unmatched_sub_lines}" \
+      2
+  )
+  matched_sub_lines_percentage_col_width=$(
+    get_col_width_with_header \
+      "$matched_sub_lines_percentage_header" \
+      "$(array_width --array \
+           "${stats_matched_sub_lines_percentage[@]}")" \
+      1
+  )
+
+  # Helper functions for printf format strtings
+
+  function get_padded_col_padding_width {
+    local col_width="$1" val="$2" extra="${3:-0}"
+    echo $((col_width - ${#val} - extra))
+  }
+
+  function get_searched_files_col_width {
+    local searched_files_val="$1" 
+    if [[ $searched_files_val =~ ^[\ -~]+$ ]]; then # Regex for ASCII
+      echo $searched_files_col_width
+    else
+      # Correcting display width
+      local lengths
+      read -ra lengths < <(wc --bytes --max-line-length < <(printf %s "$searched_files_val"))
+      echo $(($searched_files_col_width + $(IFS=-; echo "${lengths[*]}")))
+    fi
+  } 
+
+  function get_format_files {
+
+    local format \
+          file_nums_val="$1"
+          searched_files_val="$2"
+
+    format="${ansi_escape:+${ansi_esc_header_bg[0]}}"
+      format+="${ansi_escape:+${ansi_esc_header[0]}}"
+        format+="%$(get_padded_col_padding_width \
+                      "$file_nums_col_width" \
+                      "$file_nums_val" \
+                      ${statistics_file_numbers:+1} # Extra: '.'
+                   )s"
+        [[ $statistics_file_numbers ]] && format+='%d.' || format+='%s'
+      format+="${ansi_escape:+${ansi_esc_header[1]}}"
+    format+="${ansi_escape:+${ansi_esc_header_bg[1]}}"
+    [[ $statistics_headers || $statistics_file_numbers ]] && format+=' '
+    format+="${ansi_escape:+${ansi_esc_file[0]}}"
+      format+="%-$(get_searched_files_col_width "$searched_files_val")s"
+    format_files+="${ansi_escape:+${ansi_esc_file[1]}}"
+
+    echo "$format"
+
+  }
+
+  function get_format_nums {
+
+    local format \
+          unmatched_sub_lines_val="$1"
+
+      format="${ansi_escape:+${ansi_esc_matched_sub_lines[0]}}"
+        format+="%${matched_sub_lines_col_width}d"
+      format+="${ansi_escape:+${ansi_esc_matched_sub_lines[1]}}"
+      format+=' '
+      format+="${ansi_escape:+${ansi_esc_punct[0]}}"
+        format+='/'
+      format+="${ansi_escape:+${ansi_esc_punct[1]}}"
+      format+=' '
+      format+="${ansi_escape:+${ansi_esc_total_sub_lines[0]}}"
+        format+="%${total_sub_lines_col_width}d"
+      format+="${ansi_escape:+${ansi_esc_total_sub_lines[1]}} "
+      format+="%$(get_padded_col_padding_width \
+                    "$unmatched_sub_lines_col_width" \
+                    "$unmatched_sub_lines_val" \
+                    2 # Extra: '(', ')'
+                 )s"
+      format+="${ansi_escape:+${ansi_esc_punct[0]}}"
+        format+='('
+      format+="${ansi_escape:+${ansi_esc_punct[1]}}"
+      format+="${ansi_escape:+${ansi_esc_unmatched_sub_lines[0]}}"
+        format+='%d'
+      format+="${ansi_escape:+${ansi_esc_unmatched_sub_lines[1]}}"
+      format+="${ansi_escape:+${ansi_esc_punct[0]}}"
+        format+=')'
+      format+="${ansi_escape:+${ansi_esc_punct[1]}}"
+      format+=' '
+      format+="${ansi_escape:+${ansi_esc_matched_sub_lines_percentage[0]}}"
+        format+="%$((${matched_sub_lines_percentage_col_width} - 
+                     1
+                   ))s" # Extra: '%'
+        format+='%%'
+      format+="${ansi_escape:+${ansi_esc_matched_sub_lines_percentage[1]}}"
+
+    echo "$format"
+
+  }
+
+  # Top headers
+
+  if [[ ! $statistics_no_headers ]]; then
+
+    ansi_esc_header[0]="${ansi_esc_header_init[0]}"
+    ansi_esc_header[1]="${ansi_esc_header_init[1]}"
+
+    ansi_esc_header_bg[0]="${ansi_esc_header_bg_init[0]}"
+    ansi_esc_header_bg[1]="${ansi_esc_header_bg_init[1]}"
+
+    local format
+
+    format="${ansi_escape:+${ansi_esc_header_bg[0]}}"
+      format+="${ansi_escape:+${ansi_esc_header[0]}}"
+        format+="%$(get_padded_col_padding_width \
+                      "$file_nums_col_width"
+                   )s"
+        format+="%s"
+        format+=' '
+      format+="${ansi_escape:+${ansi_esc_header[1]}}"
+    format+="${ansi_escape:+${ansi_esc_header_bg[1]}}"
+    format+="${ansi_escape:+${ansi_esc_header_bg[0]}}"
+      format+="${ansi_escape:+${ansi_esc_header[0]}}"
+        format+="%-${searched_files_col_width}s"
+        format+=' '
+      format+="${ansi_escape:+${ansi_esc_header[1]}}"
+    format+="${ansi_escape:+${ansi_esc_header_bg[1]}}"
+    format+="${ansi_escape:+${ansi_esc_header_bg[0]}}"
+      format+="${ansi_escape:+${ansi_esc_header[0]}}"
+        format+="%${matched_sub_lines_col_width}s"
+        format+=' '
+      format+="${ansi_escape:+${ansi_esc_header[1]}}"
+    format+="${ansi_escape:+${ansi_esc_header_bg[1]}}"
+    format+="${ansi_escape:+${ansi_esc_header_bg[0]}}"
+      format+="${ansi_escape:+${ansi_esc_header[0]}}"
+        format+='  '
+        format+="%${total_sub_lines_col_width}s"
+        format+=' '
+      format+="${ansi_escape:+${ansi_esc_header[1]}}"
+    format+="${ansi_escape:+${ansi_esc_header_bg[1]}}"
+    format+="${ansi_escape:+${ansi_esc_header_bg[0]}}"
+      format+="${ansi_escape:+${ansi_esc_header[0]}}"
+        format+="%$(get_padded_col_padding_width \
+                      "$unmatched_sub_lines_col_width" \
+                      "$unmatched_sub_lines_header"
+                   )s"
+        format+='%s '
+      format+="${ansi_escape:+${ansi_esc_header[1]}}"
+    format+="${ansi_escape:+${ansi_esc_header_bg[1]}}"
+    format+="${ansi_escape:+${ansi_esc_header_bg[0]}}"
+      format+="${ansi_escape:+${ansi_esc_header[0]}}"
+        format+="%${matched_sub_lines_percentage_col_width}s"
+      format+="${ansi_escape:+${ansi_esc_header[1]}}"
+    format+="${ansi_escape:+${ansi_esc_header_bg[1]}}"
+    format+='\n'
+
+    printf "$format" \
+      '' "$nums_header" \
+      "$searched_files_header" \
+      "$matched_sub_lines_header" \
+      "$total_sub_lines_header" \
+      '' "$unmatched_sub_lines_header" \
+      "$matched_sub_lines_percentage_header"
+
+  fi
+
+  # Per-file stats
+
+  local format i
+
+  for (( i=0; i<${#stats_searched_files[@]}; i++ )); do
+
+    if [[ ${stats_matched_sub_lines[$i]} ]]; then
+
+      ansi_esc_file[0]="${ansi_esc_file_init[0]}"
+      ansi_esc_file[1]="${ansi_esc_file_init[1]}"
+
+      ansi_esc_header[0]="${ansi_esc_header_init[0]}"
+      ansi_esc_header[1]="${ansi_esc_header_init[1]}"
+
+      ansi_esc_matched_sub_lines[0]="${ansi_esc_matched_sub_lines_init[0]}"
+      ansi_esc_matched_sub_lines[1]="${ansi_esc_matched_sub_lines_init[1]}"
+      ansi_esc_matched_sub_lines_percentage[0]="${ansi_esc_matched_sub_lines_percentage_init[0]}"
+      ansi_esc_matched_sub_lines_percentage[1]="${ansi_esc_matched_sub_lines_percentage_init[1]}"
+
+      ansi_esc_punct[0]="${ansi_esc_punct_init[0]}"
+      ansi_esc_punct[1]="${ansi_esc_punct_init[1]}"
+
+    else
+      ansi_esc_line[0]="${ansi_esc_line_init[0]}"
+      ansi_esc_line[1]="${ansi_esc_line_init[1]}"
+    fi
+
+    [[ $statistics_file_numbers ]] && file_num=$((i + 1))
+
+    format="${ansi_escape:+${ansi_esc_line[0]}}"
+    format+="$(get_format_files "$file_num" "${stats_searched_files[$i]}")"
+    format+=' '
+    format+=$(get_format_nums ${stats_unmatched_sub_lines[$i]})
+    format+="${ansi_escape:+${ansi_esc_line[1]}}"
+    format+='\n'
+
+    printf "$format" \
+      '' "$file_num" \
+      "${stats_searched_files[$i]}" \
+      "${stats_matched_sub_lines[$i]:-0}" \
+      "${stats_total_sub_lines[$i]:-0}" \
+      '' "${stats_unmatched_sub_lines[$i]:-0}" \
+      "${stats_matched_sub_lines_percentage[$i]:--}"
+
+    unset ansi_esc_line \
+          ansi_esc_header \
+          ansi_esc_file \
+          ansi_esc_matched_sub_lines \
+          ansi_esc_matched_sub_lines_percentage \
+          ansi_esc_punct
+
+  done
+
+  # Resetting variables
+
+  ansi_esc_header[0]="${ansi_esc_header_init[0]}"
+  ansi_esc_header[1]="${ansi_esc_header_init[1]}"
+
+  ansi_esc_matched_sub_lines[0]="${ansi_esc_matched_sub_lines_init[0]}"
+  ansi_esc_matched_sub_lines[1]="${ansi_esc_matched_sub_lines_init[1]}"
+  ansi_esc_matched_sub_lines_percentage[0]="${ansi_esc_matched_sub_lines_percentage_init[0]}"
+  ansi_esc_matched_sub_lines_percentage[1]="${ansi_esc_matched_sub_lines_percentage_init[1]}"
+
+  ansi_esc_punct[0]="${ansi_esc_punct_init[0]}"
+  ansi_esc_punct[1]="${ansi_esc_punct_init[1]}"
+
+  # Averages
+
+  local format
+
+  format="${ansi_escape:+${ansi_esc_line[0]}}"
+    format+="${ansi_escape:+${ansi_esc_header_bg[0]}}"
+      format+="${ansi_escape:+${ansi_esc_header[0]}}"
+        format+="%${file_nums_col_width}s"
+      format+="${ansi_escape:+${ansi_esc_header[1]}}"
+    format+="${ansi_escape:+${ansi_esc_header_bg[1]}}"
+    [[ $statistics_headers || $statistics_file_numbers ]] && format+=' '
+      format+="%-${searched_files_col_width}s"
+    format+=' '
+    format+=$(get_format_nums ${stats_average_unmatched_lines_per_file})
+  format+="${ansi_escape:+${ansi_esc_line[1]}}"
+  format+='\n'
+
+  printf "$format" \
+    "$average_header" \
+    '' \
+    "$stats_average_matched_lines_per_file" \
+    "$stats_average_lines_per_file" \
+    '' "$stats_average_unmatched_lines_per_file" \
+    "$stats_average_matched_sub_lines_percentage"
+
+  # Totals
+
+  local ansi_esc_total_files_with_matches \
+        ansi_esc_total_files \
+        ansi_esc_total_files_without_matches \
+        ansi_esc_total_files_with_matches_percentage \
+        files_total_cell \
+        files_total_cell_padding_width \
+        format
+
+  ansi_esc_total_files_with_matches[0]="${ansi_esc_matched_sub_lines[0]}"
+  ansi_esc_total_files_with_matches[1]="${ansi_esc_matched_sub_lines[1]}"
+  ansi_esc_total_files[0]="${ansi_esc_total_sub_lines[0]}"
+  ansi_esc_total_files[1]="${ansi_esc_total_sub_lines[1]}"
+  ansi_esc_total_files_without_matches[0]="${ansi_esc_unmatched_sub_lines[0]}"
+  ansi_esc_total_files_without_matches[1]="${ansi_esc_unmatched_sub_lines[1]}"
+  ansi_esc_total_files_with_matches_percentage[0]="${ansi_esc_matched_sub_lines_percentage[0]}"
+  ansi_esc_total_files_with_matches_percentage[1]="${ansi_esc_matched_sub_lines_percentage[1]}"
+
+  files_total_cell_padding_width=$((
+    searched_files_col_width - 
+    ${#stats_total_files_with_matches} - 3 - 
+    ${#stats_total_files} - 2 - 
+    ${#stats_total_files_without_matches} - 2 - 
+    ${#stats_total_files_with_matches_percentage} - 1
+  ))
+
+  files_total_cell=$(
+
+    format="${ansi_escape:+${ansi_esc_total_files_with_matches[0]}}"
+      format+='%-d'
+    format+="${ansi_escape:+${ansi_esc_total_files_with_matches[1]}}"
+    format+=' '
+    format+="${ansi_escape:+${ansi_esc_punct[0]}}"
+      format+='/'
+    format+="${ansi_escape:+${ansi_esc_punct[1]}}"
+    format+=' '
+    format+="${ansi_escape:+${ansi_esc_total_files[0]}}"
+      format+='%-d'
+    format+="${ansi_escape:+${ansi_esc_total_files[1]}}"
+    format+=' '
+    format+="${ansi_escape:+${ansi_esc_punct[0]}}"
+      format+='('
+    format+="${ansi_escape:+${ansi_esc_punct[1]}}"
+    format+="${ansi_escape:+${ansi_esc_total_files_without_matches[0]}}"
+      format+='%-d'
+    format+="${ansi_escape:+${ansi_esc_total_files_without_matches[1]}}"
+    format+="${ansi_escape:+${ansi_esc_punct[0]}}"
+      format+=')'
+    format+="${ansi_escape:+${ansi_esc_punct[1]}}"
+    format+=' '
+    format+="${ansi_escape:+${ansi_esc_total_files_with_matches_percentage[0]}}"
+      format+="%-s%%"
+    format+="${ansi_escape:+${ansi_esc_total_files_with_matches_percentage[1]}}"
+    format+="%${files_total_cell_padding_width}s"
+
+    printf "$format" \
+      "$stats_total_files_with_matches" \
+      "$stats_total_files" \
+      "$stats_total_files_without_matches" \
+      "$stats_total_files_with_matches_percentage" \
+      ''
+
+  )
+
+  format="${ansi_escape:+${ansi_esc_line[0]}}"
+    format+="${ansi_escape:+${ansi_esc_header[0]}}"
+      format+="${ansi_escape:+${ansi_esc_header_bg[0]}}"
+        format+="%${file_nums_col_width}s"
+      format+="${ansi_escape:+${ansi_esc_header[1]}}"
+    format+="${ansi_escape:+${ansi_esc_header_bg[1]}}"
+    [[ $statistics_headers || $statistics_file_numbers ]] && format+=' '
+      format+="%-${searched_files_col_width}s"
+    format+=' '
+    format+=$(get_format_nums ${stats_total_unmatched_sub_lines})
+  format+="${ansi_escape:+${ansi_esc_line[1]}}"
+  format+='\n'
+
+  printf "$format" \
+    "$total_header" \
+    "$files_total_cell" \
+    "${stats_total_matched_sub_lines:-0}" \
+    "${stats_grand_total_sub_lines:-0}" \
+    '' "${stats_total_unmatched_sub_lines:-0}" \
+    "${stats_total_matched_sub_lines_percentage:--}"
+
+}
+
+[[ $statistics ]] && print_stats
