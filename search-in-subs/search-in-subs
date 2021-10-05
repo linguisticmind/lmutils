@@ -245,7 +245,7 @@ function print_help {
   opt_descriptions[4]+="Gives the same output as '-v, --verbose', but without the matches."
 
   opt_names[5]='-I, --no-inverse'
-  opt_aliases[5]=$'(-n, --no-inverse-search,\n --no-invert, --no-invert-search,\n --match, --match-search)'
+  opt_aliases[5]=$'(-N, --no-inverse-search,\n --no-invert, --no-invert-search,\n --match, --match-search)'
   opt_descriptions[5]="Disables '-i, --inverse'. This is the default behavior."
 
   opt_names[6]='-q, --quiet'
@@ -826,7 +826,12 @@ function print_stats {
         ansi_esc_punct_init[1]=$'\x1b[22m'
 
   function array_sum {
-    echo $(($(IFS=+; echo "$*")))
+    local a i
+    for i in "$@"; do
+      [[ ! $i ]] && i=0
+      a+=("$i")
+    done
+    echo $(($(IFS=+; echo "${a[*]}")))
   }
 
   # Headers
@@ -896,10 +901,10 @@ function print_stats {
         stats_average_unmatched_lines_per_file \
         stats_average_matched_sub_lines_percentage \
 
-  stats_average_matched_lines_per_file=$((
+  [[ ! $stats_total_files_with_matches = 0 ]] && stats_average_matched_lines_per_file=$((
     stats_total_matched_sub_lines / stats_total_files_with_matches
   ))
-  stats_average_lines_per_file=$((
+  [[ ! $stats_total_files = 0 ]] && stats_average_lines_per_file=$((
     stats_grand_total_sub_lines / stats_total_files
   ))
   stats_average_unmatched_lines_per_file=$((
@@ -1143,8 +1148,12 @@ function print_stats {
       ansi_esc_punct[1]="${ansi_esc_punct_init[1]}"
 
     else
+
       ansi_esc_line[0]="${ansi_esc_line_init[0]}"
       ansi_esc_line[1]="${ansi_esc_line_init[1]}"
+
+      unset ansi_esc_header
+
     fi
 
     [[ $statistics_file_numbers ]] && file_num=$((i + 1))
@@ -1299,4 +1308,4 @@ function print_stats {
 
 }
 
-[[ $statistics ]] && print_stats
+[[ $statistics ]] && print_stats || true
