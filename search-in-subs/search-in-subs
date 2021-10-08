@@ -1,5 +1,23 @@
 #!/usr/bin/env bash
 
+# search-in-subs - search for words in subtitle files
+# copyright (c) 2021  Alex Rogers (https://github.com/linguisticmind)
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+############################################################
+
 shopt -s expand_aliases
 
 type -P gsed 1> /dev/null && alias sed=gsed
@@ -356,6 +374,7 @@ function print_help {
     'About' \
     "${0##*/} is part of lmutils - collection of command line tools for language learning and more."$'\n''lmutils are hosted at https://github.com/linguisticmind/lmutils' \
     'Written by Alex Rogers (linguisticmind).' \
+    'Distributed under GNU General Public License v3.' \
     'Linguistic Mind - a language learning tools, tutorials and resources hub' \
     'https://linguisticmind.github.io'
 
