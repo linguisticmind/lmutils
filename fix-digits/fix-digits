@@ -450,7 +450,7 @@ done
 
 function repeat_str {
   [[ $2 = 0 ]] && return
-  printf "$1%.s" $(seq 1 $2)
+  printf -- "$1%.s" $(seq 1 $2)
 }
 
 function get_new_filename {
