@@ -440,7 +440,7 @@ max_digits=0
 for file in "${files[@]}"; do
   if [[ $file =~ $(get_regex $((max_digits + 1))) ]]; then
     ((max_digits++))
-    max_length=${#file}
+    max_length=${#BASH_REMATCH[2]}
   elif [[ $file =~ $(get_regex 1,) ]]; then
     [[ ${#file} -lt $max_length ]] && break
   fi
