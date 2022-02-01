@@ -497,9 +497,12 @@ for (( i=0; i<${#args[@]}; i++ )); do
       [[ ! ${args[$I]} =~ ^-[[:alpha:]]+($|=) ]] && unrecognized_opts_invalid_multi_letter_combs+=("${args[$I]}") && continue
       opt_letters="${args[$I]%%=*}" substr_length=1
       for (( j=1; j<${#opt_letters}; j++ )); do
-        [[ ! $j = $((${#opt_letters} - 1)) ]] &&
-        set_opts -"${args[$I]:$j:$substr_length}" ||
-        set_opts -"${args[$I]:$j}"
+        if [[ ! $j = $((${#opt_letters} - 1)) ]]; then
+          set_opts -"${args[$I]:$j:$substr_length}"
+        else
+          unset substr_length
+          set_opts -"${args[$I]:$j}"
+        fi
       done
       unset j
     else
@@ -661,7 +664,7 @@ for i in "${search_items_final[@]}"; do
     print_msg --type warning "File '${i//\'/\'\\\'\'}' not found. Skipping."
     continue
   elif [[ -d "$i" ]]; then
-    search_files+=("${i%/}/*.srt")
+    search_files+=("${i%/}"/*.srt)
   elif [[ -f "$i" ]]; then
     if [[ $i = *.srt ]]; then
       search_files+=("$i")
