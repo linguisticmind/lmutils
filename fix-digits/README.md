@@ -1,5 +1,9 @@
 # fix-digits
 
+**This tool has been rewritten and moved to https://github.com/linguisticmind/fix-digits**
+
+---
+
 Adds leading zeros to numbered files to avoid the sort order problem:
 
 | Before       |     | After  |
