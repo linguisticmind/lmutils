@@ -1,5 +1,9 @@
 # search-in-subs
 
+**This tool has been rewritten and moved to https://github.com/linguisticmind/search-in-subs**
+
+---
+
 Quickly find words in `.srt` subtitles with this command line tool.<br>
 Uses [GNU sed](https://www.gnu.org/software/sed/) under the hood to search through the files.
 
